@@ -7,6 +7,7 @@ on:
       - 'v*'
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 env:
   CARGO_INCREMENTAL: 0
@@ -35,23 +36,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npx tauri build
+      - name: Build Tauri
+        run: npm run tauri build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List build outputs
+        run: |
+          echo "=== DMG files ==="
+          ls -la src-tauri/target/release/bundle/dmg/ 2>/dev/null || echo "No DMG files found"
+          echo "=== All bundle contents ==="
+          find src-tauri/target/release/bundle/ -type f 2>/dev/null || echo "No bundle directory"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
           path: src-tauri/target/release/bundle/dmg/*.dmg
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
-      - name: Release
+      - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: src-tauri/target/release/bundle/dmg/*.dmg
+          draft: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-linux:
     runs-on: ubuntu-22.04
@@ -85,23 +97,36 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npx tauri build
+      - name: Build Tauri
+        run: npm run tauri build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List build outputs
+        run: |
+          echo "=== DEB files ==="
+          ls -la src-tauri/target/release/bundle/deb/ 2>/dev/null || echo "No DEB files found"
+          echo "=== AppImage files ==="
+          ls -la src-tauri/target/release/bundle/appimage/ 2>/dev/null || echo "No AppImage files found"
+          echo "=== All bundle contents ==="
+          find src-tauri/target/release/bundle/ -type f 2>/dev/null || echo "No bundle directory"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-deb
           path: src-tauri/target/release/bundle/deb/*.deb
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
-      - name: Release
+      - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: src-tauri/target/release/bundle/deb/*.deb
+          draft: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows:
     runs-on: windows-latest
@@ -121,20 +146,33 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npx tauri build
+      - name: Build Tauri
+        run: npm run tauri build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List build outputs
+        run: |
+          echo "=== NSIS files ==="
+          Get-ChildItem -Path src-tauri\target\release\bundle\nsis\ -ErrorAction SilentlyContinue
+          echo "=== MSI files ==="
+          Get-ChildItem -Path src-tauri\target\release\bundle\msi\ -ErrorAction SilentlyContinue
+          echo "=== All bundle contents ==="
+          Get-ChildItem -Path src-tauri\target\release\bundle\ -Recurse -ErrorAction SilentlyContinue
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-exe
           path: src-tauri/target/release/bundle/nsis/*.exe
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
-      - name: Release
+      - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: src-tauri/target/release/bundle/nsis/*.exe
+          draft: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
