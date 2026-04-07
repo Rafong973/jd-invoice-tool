@@ -1,0 +1,20 @@
+[package]
+name = "jd-invoice-app"
+version = "1.0.0"
+description = "京东发票管理桌面客户端"
+authors = []
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "cookies", "gzip"] }
+tokio = { version = "1", features = ["full"] }
+dirs = "5"
+open = "5"
+percent-encoding = "2"
