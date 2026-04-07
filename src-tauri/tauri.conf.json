@@ -1,5 +1,5 @@
 {
-  "productName": "京东发票管理",
+  "productName": "jd-invoice-tool",
   "version": "1.0.0",
   "identifier": "com.jd-invoice.app",
   "build": {
