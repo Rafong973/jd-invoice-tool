@@ -13,7 +13,7 @@
 
 ## 📥 下载安装
 
-前往 [Releases](https://github.com/your-repo/releases) 页面下载对应系统的安装包：
+前往 [Releases](https://github.com/Rafong973/jd-invoice-tool/releases) 页面下载对应系统的安装包：
 
 | 系统 | 安装包格式 |
 |------|-----------|
