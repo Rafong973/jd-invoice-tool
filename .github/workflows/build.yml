@@ -3,11 +3,9 @@ name: Build & Release
 on:
   push:
     branches: [master]
-    tags:
-      - 'v*'
   pull_request:
     branches: [master]
-  workflow_dispatch:
+  workflow_dispatch: # 允许手动触发
 
 env:
   CARGO_INCREMENTAL: 0
@@ -45,8 +43,6 @@ jobs:
         run: |
           echo "=== DMG files ==="
           ls -la src-tauri/target/release/bundle/dmg/ 2>/dev/null || echo "No DMG files found"
-          echo "=== All bundle contents ==="
-          find src-tauri/target/release/bundle/ -type f 2>/dev/null || echo "No bundle directory"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -106,10 +102,6 @@ jobs:
         run: |
           echo "=== DEB files ==="
           ls -la src-tauri/target/release/bundle/deb/ 2>/dev/null || echo "No DEB files found"
-          echo "=== AppImage files ==="
-          ls -la src-tauri/target/release/bundle/appimage/ 2>/dev/null || echo "No AppImage files found"
-          echo "=== All bundle contents ==="
-          find src-tauri/target/release/bundle/ -type f 2>/dev/null || echo "No bundle directory"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -155,10 +147,6 @@ jobs:
         run: |
           echo "=== NSIS files ==="
           Get-ChildItem -Path src-tauri\target\release\bundle\nsis\ -ErrorAction SilentlyContinue
-          echo "=== MSI files ==="
-          Get-ChildItem -Path src-tauri\target\release\bundle\msi\ -ErrorAction SilentlyContinue
-          echo "=== All bundle contents ==="
-          Get-ChildItem -Path src-tauri\target\release\bundle\ -Recurse -ErrorAction SilentlyContinue
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
