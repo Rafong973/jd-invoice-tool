@@ -32,6 +32,10 @@ export const useAppStore = defineStore('app', () => {
     isLoggedIn.value = true
   }
 
+  async function logout() {
+    await clearCookie()
+  }
+
   async function loadTitles() {
     try {
       titles.value = await getTitles()
@@ -161,6 +165,7 @@ export const useAppStore = defineStore('app', () => {
     error,
     initCookie,
     setCookie,
+    logout,
     clearCookie,
     loadInvoices,
     loadMoreInvoices,

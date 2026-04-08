@@ -84,12 +84,13 @@ async function handleConfirmExchange(titleId: string) {
     alert('请选择发票抬头')
     return
   }
-  const total = confirmOrders.value.reduce((sum, o) => {
+  void confirmOrders.value.reduce((sum, o) => {
     const val = (o as Record<string, unknown>).ivcAmount ?? (o as Record<string, unknown>).totalAmount
     const num = typeof val === 'string' ? parseFloat(val) : (typeof val === 'number' ? val : 0)
     return sum + num
   }, 0)
-  alert(`换开成功！\n开票方: ${confirmGroup.value?.orgName}\n抬头: ${title.titleName}\n邮箱: ${title.email}${title.taxNo ? '\n税号: ' + title.taxNo : ''}\n金额: ¥${total.toFixed(2)}\n订单数: ${confirmOrders.value.length}`)
+  alert('暂无不支持换开发票')
+  return
   showConfirmDialog.value = false
 }
 </script>

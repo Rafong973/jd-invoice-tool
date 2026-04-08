@@ -1,9 +1,57 @@
 import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { InvoiceItem, InvoiceFile, MergeGroup } from '@/types'
 import type { InvoiceTitle } from '@/types/title'
 
 export async function openBrowser(url: string): Promise<void> {
   await invoke<string>('open_browser', { url })
+}
+
+export async function openLoginWindow(): Promise<void> {
+  await invoke<string>('open_login_window')
+}
+
+export async function openLoginWindowClean(): Promise<void> {
+  await invoke<string>('open_login_window_clean')
+}
+
+export async function closeLoginWindow(): Promise<void> {
+  await invoke<string>('close_login_window')
+}
+
+export async function closeLoginWindowClean(): Promise<void> {
+  await invoke<string>('close_login_window_clean')
+}
+
+export async function isLoginWindowOpen(): Promise<boolean> {
+  return invoke<boolean>('is_login_window_open')
+}
+
+export async function isLoginWindowCleanOpen(): Promise<boolean> {
+  return invoke<boolean>('is_login_window_clean_open')
+}
+
+export async function hasLoginSucceeded(): Promise<boolean> {
+  return invoke<boolean>('has_login_succeeded')
+}
+
+export async function extractCookies(): Promise<string> {
+  return invoke<string>('extract_cookies')
+}
+
+export async function extractCookiesClean(): Promise<string> {
+  return invoke<string>('extract_cookies_clean')
+}
+
+export interface LoginWindowEvent {
+  url: string
+  logged_in: boolean
+}
+
+export async function onLoginSuccess(callback: (event: LoginWindowEvent) => void): Promise<UnlistenFn> {
+  return listen<LoginWindowEvent>('login-success', (event) => {
+    callback(event.payload)
+  })
 }
 
 export async function saveCookie(cookie: string): Promise<string> {

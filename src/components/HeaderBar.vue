@@ -7,8 +7,8 @@
       <router-link v-if="store.isLoggedIn" to="/" class="nav-link">发票列表</router-link>
       <router-link v-if="store.isLoggedIn" to="/exchange" class="nav-link">换开发票</router-link>
       <router-link to="/settings" class="nav-link">设置</router-link>
-      <span v-if="store.isLoggedIn" class="status-badge">已登录</span>
-      <span v-else class="status-badge unlogin">未登录</span>
+      <button v-if="store.isLoggedIn" class="login-btn logout" @click="handleLogout">退出登录</button>
+      <router-link v-else-if="$route.path !== '/login'" to="/login" class="login-btn">登录</router-link>
     </nav>
   </header>
 </template>
@@ -26,6 +26,11 @@ function goHome() {
   } else {
     router.push('/login')
   }
+}
+
+async function handleLogout() {
+  await store.logout()
+  router.push('/login')
 }
 </script>
 
@@ -51,7 +56,7 @@ function goHome() {
 .header-nav {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
 }
 
 .nav-link {
@@ -69,18 +74,30 @@ function goHome() {
   background-color: #fff5f5;
 }
 
-.status-badge {
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 12px;
-  background-color: #f6ffed;
-  color: #52c41a;
-  border: 1px solid #b7eb8f;
+.login-btn {
+  padding: 6px 16px;
+  font-size: 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-decoration: none;
+  border: none;
+  background-color: #e2231a;
+  color: white;
+  transition: all 0.2s;
 }
 
-.status-badge.unlogin {
-  background-color: #fff7e6;
-  color: #fa8c16;
-  border-color: #ffd591;
+.login-btn:hover {
+  background-color: #c41e1a;
+}
+
+.login-btn.logout {
+  background-color: #f5f5f5;
+  color: #666;
+  border: 1px solid #ddd;
+}
+
+.login-btn.logout:hover {
+  background-color: #eee;
+  color: #333;
 }
 </style>
