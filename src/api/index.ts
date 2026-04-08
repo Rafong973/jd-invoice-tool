@@ -23,6 +23,14 @@ export async function closeLoginWindowClean(): Promise<void> {
   await invoke<string>('close_login_window_clean')
 }
 
+export async function clearLoginWindowCookies(): Promise<void> {
+  await invoke<string>('clear_login_window_cookies')
+}
+
+export async function clearLoginWindowCache(): Promise<void> {
+  await invoke<string>('clear_login_window_cache')
+}
+
 export async function isLoginWindowOpen(): Promise<boolean> {
   return invoke<boolean>('is_login_window_open')
 }

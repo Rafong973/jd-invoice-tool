@@ -15,14 +15,12 @@ async fn main() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             commands::browser::open_browser,
-            commands::login_window::open_login_window,
             commands::login_window::open_login_window_clean,
-            commands::login_window::close_login_window,
             commands::login_window::close_login_window_clean,
-            commands::login_window::is_login_window_open,
+            commands::login_window::clear_login_window_cookies,
+            commands::login_window::clear_login_window_cache,
             commands::login_window::is_login_window_clean_open,
             commands::login_window::has_login_succeeded,
-            commands::login_window::extract_cookies,
             commands::login_window::extract_cookies_clean,
             commands::cookie::save_cookie,
             commands::cookie::get_cookie,
