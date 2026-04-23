@@ -19,13 +19,18 @@ pub async fn fetch_batch_orders() -> Result<Vec<serde_json::Value>, String> {
 }
 
 fn extract_amount(order: &serde_json::Value) -> f64 {
-    if let Some(s) = order.get("ivcAmount").and_then(|v| v.as_str()) {
-        return s.parse::<f64>().unwrap_or(0.0);
+    let ivc_amount = order
+        .get("ivcAmount")
+        .and_then(|v| v.as_str().and_then(|s| s.parse::<f64>().ok()).or_else(|| v.as_f64()));
+    let actual_pay_money = order
+        .get("actualPayMoney")
+        .and_then(|v| v.as_str().and_then(|s| s.parse::<f64>().ok()).or_else(|| v.as_f64()));
+
+    match (ivc_amount, actual_pay_money) {
+        (Some(ivc), Some(actual)) if ivc > actual => (ivc - actual).max(0.0),
+        (Some(ivc), _) => ivc,
+        _ => 0.0,
     }
-    if let Some(n) = order.get("ivcAmount").and_then(|v| v.as_f64()) {
-        return n;
-    }
-    0.0
 }
 
 #[command]

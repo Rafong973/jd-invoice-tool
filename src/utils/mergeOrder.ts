@@ -18,16 +18,26 @@ function readText(value: unknown): string {
   return ''
 }
 
-export function getMergeOrderAmount(order: MergeOrder): number {
-  const value = order.ivcAmount ?? order.totalAmount
+function readNumber(value: unknown): number | null {
   if (typeof value === 'number') {
-    return value
+    return Number.isFinite(value) ? value : null
   }
   if (typeof value === 'string') {
     const parsed = Number.parseFloat(value)
-    return Number.isFinite(parsed) ? parsed : 0
+    return Number.isFinite(parsed) ? parsed : null
   }
-  return 0
+  return null
+}
+
+export function getMergeOrderAmount(order: MergeOrder): number {
+  const ivcAmount = readNumber(order.ivcAmount ?? order.totalAmount)
+  const actualPayMoney = readNumber(order.actualPayMoney)
+
+  if (ivcAmount !== null && actualPayMoney !== null && ivcAmount > actualPayMoney) {
+    return Math.max(ivcAmount - actualPayMoney, 0)
+  }
+
+  return ivcAmount ?? 0
 }
 
 export function formatMergeOrderAmount(order: MergeOrder): string {
