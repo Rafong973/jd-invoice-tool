@@ -23,7 +23,7 @@
       <div class="order-list">
         <div
           v-for="(order, index) in group.orders"
-          :key="index"
+          :key="order.orderId ?? index"
           class="order-item"
           :class="{ selected: selectedIds.has(index) }"
           @click="toggleOrder(index)"
@@ -34,8 +34,16 @@
             :checked="selectedIds.has(index)"
             @change.stop="toggleOrder(index)"
           />
-          <span class="sku">{{ getDetailSku(order) }}</span>
-          <span class="price">¥{{ getOrderAmount(order) }}</span>
+          <div class="order-content">
+            <span class="sku">{{ getMergeOrderSku(order) }}</span>
+            <div class="meta-row">
+              <span>下单 {{ formatMergeDateTime(getMergeOrderOrderTime(order)) }}</span>
+              <span>开票 {{ formatMergeDateTime(getMergeOrderInvoiceTime(order)) }}</span>
+              <span>公司 {{ getMergeOrderCompany(order) || '--' }}</span>
+              <span>抬头 {{ getMergeOrderTitle(order) || '--' }}</span>
+            </div>
+          </div>
+          <span class="price">¥{{ formatMergeOrderAmount(order) }}</span>
         </div>
       </div>
     </div>
@@ -52,15 +60,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import type { MergeGroup } from '@/types'
+import { computed, ref, watch } from 'vue'
+import type { MergeGroup, MergeOrder } from '@/types'
+import {
+  formatMergeDateTime,
+  formatMergeOrderAmount,
+  getMergeOrderAmount,
+  getMergeOrderCompany,
+  getMergeOrderInvoiceTime,
+  getMergeOrderOrderTime,
+  getMergeOrderSku,
+  getMergeOrderTitle,
+} from '@/utils/mergeOrder'
 
 const props = defineProps<{
   group: MergeGroup
 }>()
 
 defineEmits<{
-  exchange: [group: MergeGroup, orders: Record<string, unknown>[]]
+  exchange: [group: MergeGroup, orders: MergeOrder[]]
 }>()
 
 const selectedIds = ref<Set<number>>(new Set())
@@ -77,32 +95,17 @@ const indeterminate = computed(() => {
 const selectedTotal = computed(() => {
   let sum = 0
   for (const id of selectedIds.value) {
-    sum += extractAmount(props.group.orders[id])
+    sum += getMergeOrderAmount(props.group.orders[id])
   }
   return sum
 })
 
-function extractAmount(order: Record<string, unknown>): number {
-  const val = order.ivcAmount ?? order.totalAmount
-  if (typeof val === 'string') return parseFloat(val) || 0
-  if (typeof val === 'number') return val
-  return 0
-}
-
-function getOrderAmount(order: Record<string, unknown>): string {
-  const val = order.ivcAmount ?? order.totalAmount
-  if (typeof val === 'string') return val
-  if (typeof val === 'number') return val.toFixed(2)
-  return '0'
-}
-
-function getDetailSku(order: Record<string, unknown>): string {
-  const detailList = order.detailList as Record<string, unknown>[] | undefined
-  if (detailList && detailList.length > 0) {
-    return (detailList[0].skuName as string) || '商品'
-  }
-  return '商品'
-}
+watch(
+  () => props.group.orders,
+  () => {
+    selectedIds.value = new Set()
+  },
+)
 
 function toggleOrder(index: number) {
   if (selectedIds.value.has(index)) {
@@ -117,15 +120,15 @@ function toggleSelectAll() {
   if (allSelected.value) {
     selectedIds.value.clear()
   } else {
-    for (let i = 0; i < props.group.orders.length; i++) {
-      selectedIds.value.add(i)
+    for (let index = 0; index < props.group.orders.length; index += 1) {
+      selectedIds.value.add(index)
     }
   }
   selectedIds.value = new Set(selectedIds.value)
 }
 
-function getSelectedOrders(): Record<string, unknown>[] {
-  return Array.from(selectedIds.value).map(i => props.group.orders[i])
+function getSelectedOrders(): MergeOrder[] {
+  return Array.from(selectedIds.value).map((index) => props.group.orders[index])
 }
 </script>
 
@@ -143,6 +146,7 @@ function getSelectedOrders(): Record<string, unknown>[] {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+  gap: 12px;
 }
 
 .header-left {
@@ -183,15 +187,16 @@ function getSelectedOrders(): Record<string, unknown>[] {
 }
 
 .order-list {
-  max-height: 240px;
+  max-height: 320px;
   overflow-y: auto;
 }
 
 .order-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 10px;
   font-size: 13px;
   border-bottom: 1px solid #f5f5f5;
   border-radius: 4px;
@@ -202,6 +207,7 @@ function getSelectedOrders(): Record<string, unknown>[] {
 .order-item:last-child {
   border-bottom: none;
 }
+
 .order-item:hover {
   background-color: #fafafa;
 }
@@ -218,18 +224,31 @@ function getSelectedOrders(): Record<string, unknown>[] {
   flex-shrink: 0;
 }
 
+.order-content {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
 .sku {
-  color: #666;
-  flex: 1;
-  margin-right: 12px;
+  color: #333;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #666;
+  font-size: 12px;
+}
+
 .price {
   color: #333;
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -239,5 +258,25 @@ function getSelectedOrders(): Record<string, unknown>[] {
   justify-content: flex-end;
   border-top: 1px solid #f0f0f0;
   padding-top: 12px;
+}
+
+@media (max-width: 720px) {
+  .card-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .total {
+    white-space: normal;
+  }
+
+  .order-item {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .price {
+    grid-column: 2;
+    justify-self: end;
+  }
 }
 </style>

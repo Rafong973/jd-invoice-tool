@@ -72,6 +72,13 @@ fn parse_json_array(value: Option<&serde_json::Value>) -> Vec<serde_json::Value>
     }
 }
 
+fn can_exchange_invoice(order: &serde_json::Value) -> bool {
+    order
+        .get("canHk")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
 pub struct JdApi {
     cookie: String,
 }
@@ -214,6 +221,22 @@ impl JdApi {
                 break;
             }
             for order in list {
+                if !can_exchange_invoice(&order) {
+                    let order_id = order
+                        .get("orderId")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default();
+                    let reason = order
+                        .get("canHkReason")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default();
+                    eprintln!(
+                        "[DEBUG] get_all_batch_orders skipped order by canHk=false: {} reason={}",
+                        order_id,
+                        reason
+                    );
+                    continue;
+                }
                 if let Some(info) = order.get("originalOrderInfo").cloned() {
                     all.push(info);
                 }

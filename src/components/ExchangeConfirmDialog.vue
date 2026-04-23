@@ -27,20 +27,20 @@
             <option value="">请选择发票抬头</option>
             <optgroup label="个人">
               <option
-                v-for="t in personalTitles"
-                :key="t.id"
-                :value="t.id"
+                v-for="title in personalTitles"
+                :key="title.id"
+                :value="title.id"
               >
-                {{ t.titleName }} - {{ t.email }}{{ t.isDefault ? ' (默认)' : '' }}
+                {{ title.titleName }} - {{ title.email }}{{ title.isDefault ? ' (默认)' : '' }}
               </option>
             </optgroup>
             <optgroup label="公司">
               <option
-                v-for="t in companyTitles"
-                :key="t.id"
-                :value="t.id"
+                v-for="title in companyTitles"
+                :key="title.id"
+                :value="title.id"
               >
-                {{ t.titleName }} - {{ t.taxNo }} - {{ t.email }}{{ t.isDefault ? ' (默认)' : '' }}
+                {{ title.titleName }} - {{ title.taxNo }} - {{ title.email }}{{ title.isDefault ? ' (默认)' : '' }}
               </option>
             </optgroup>
           </select>
@@ -49,9 +49,17 @@
         <div class="order-preview">
           <h4>已选订单</h4>
           <div class="order-list">
-            <div v-for="(order, i) in selectedOrders" :key="i" class="order-item">
-              <span class="sku">{{ getSkuName(order) }}</span>
-              <span class="price">¥{{ getOrderAmount(order) }}</span>
+            <div v-for="(order, index) in selectedOrders" :key="order.orderId ?? index" class="order-item">
+              <div class="order-main">
+                <span class="sku">{{ getMergeOrderSku(order) }}</span>
+                <div class="meta-row">
+                  <span>下单 {{ formatMergeDateTime(getMergeOrderOrderTime(order)) }}</span>
+                  <span>开票 {{ formatMergeDateTime(getMergeOrderInvoiceTime(order)) }}</span>
+                  <span>公司 {{ getMergeOrderCompany(order) || '--' }}</span>
+                  <span>抬头 {{ getMergeOrderTitle(order) || '--' }}</span>
+                </div>
+              </div>
+              <span class="price">¥{{ formatMergeOrderAmount(order) }}</span>
             </div>
           </div>
         </div>
@@ -67,14 +75,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref } from 'vue'
-import type { MergeGroup } from '@/types'
+import { computed, ref, watch } from 'vue'
+import type { MergeGroup, MergeOrder } from '@/types'
 import type { InvoiceTitle } from '@/types/title'
+import {
+  formatMergeDateTime,
+  formatMergeOrderAmount,
+  getMergeOrderAmount,
+  getMergeOrderCompany,
+  getMergeOrderInvoiceTime,
+  getMergeOrderOrderTime,
+  getMergeOrderSku,
+  getMergeOrderTitle,
+} from '@/utils/mergeOrder'
 
 const props = defineProps<{
   visible: boolean
   group: MergeGroup | null
-  selectedOrders: Record<string, unknown>[]
+  selectedOrders: MergeOrder[]
   titles: InvoiceTitle[]
 }>()
 
@@ -85,47 +103,28 @@ defineEmits<{
 
 const selectedTitleId = ref('')
 
-watch(() => props.visible, (val) => {
-  if (val) {
-    const defaultTitle = props.titles.find((t) => t.isDefault)
-    selectedTitleId.value = defaultTitle?.id || ''
-  }
-})
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) {
+      const defaultTitle = props.titles.find((title) => title.isDefault)
+      selectedTitleId.value = defaultTitle?.id || ''
+    }
+  },
+)
 
-const personalTitles = computed(() => props.titles.filter((t) => t.titleType === 'personal'))
-const companyTitles = computed(() => props.titles.filter((t) => t.titleType === 'company'))
+const personalTitles = computed(() => props.titles.filter((title) => title.titleType === 'personal'))
+const companyTitles = computed(() => props.titles.filter((title) => title.titleType === 'company'))
 
 const selectedTotal = computed(() => {
-  return props.selectedOrders.reduce((sum, o) => {
-    const val = (o as Record<string, unknown>).ivcAmount ?? (o as Record<string, unknown>).totalAmount
-    const num = typeof val === 'string' ? parseFloat(val) : (typeof val === 'number' ? val : 0)
-    return sum + num
-  }, 0)
+  return props.selectedOrders.reduce((sum, order) => sum + getMergeOrderAmount(order), 0)
 })
-
-function getSkuName(order: Record<string, unknown>): string {
-  const detailList = order.detailList as Record<string, unknown>[] | undefined
-  if (detailList && detailList.length > 0) {
-    return (detailList[0].skuName as string) || '商品'
-  }
-  return '商品'
-}
-
-function getOrderAmount(order: Record<string, unknown>): string {
-  const val = order.ivcAmount ?? order.totalAmount
-  if (typeof val === 'string') return val
-  if (typeof val === 'number') return val.toFixed(2)
-  return '0'
-}
 </script>
 
 <style scoped>
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
@@ -136,8 +135,8 @@ function getOrderAmount(order: Record<string, unknown>): string {
 .modal {
   background: white;
   border-radius: 8px;
-  width: 480px;
-  max-width: 90vw;
+  width: 560px;
+  max-width: 92vw;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
@@ -240,30 +239,44 @@ function getOrderAmount(order: Record<string, unknown>): string {
 }
 
 .order-list {
-  max-height: 150px;
+  max-height: 220px;
   overflow-y: auto;
 }
 
 .order-item {
   display: flex;
   justify-content: space-between;
-  padding: 6px 0;
+  gap: 12px;
+  padding: 8px 0;
   font-size: 13px;
   border-bottom: 1px solid #f5f5f5;
 }
 
+.order-main {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
 .sku {
-  color: #666;
-  flex: 1;
-  margin-right: 12px;
+  color: #333;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #666;
+  font-size: 12px;
+}
+
 .price {
   color: #333;
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -273,5 +286,15 @@ function getOrderAmount(order: Record<string, unknown>): string {
   gap: 10px;
   padding: 16px 20px;
   border-top: 1px solid #eee;
+}
+
+@media (max-width: 640px) {
+  .order-item {
+    flex-direction: column;
+  }
+
+  .price {
+    align-self: flex-end;
+  }
 }
 </style>

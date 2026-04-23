@@ -19,10 +19,30 @@ export interface InvoiceFile {
   fileUrl: string
 }
 
+export interface MergeOrder {
+  orderId?: string
+  orderTime?: string
+  ivcTime?: string
+  ivcCompany?: string
+  ivcTitle?: string
+  ivcAmount?: string | number | null
+  totalAmount?: string | number | null
+  detailList?: Record<string, unknown>[]
+  [key: string]: unknown
+}
+
 export interface MergeGroup {
   orgName: string
   total: number
-  orders: Record<string, unknown>[]
+  orders: MergeOrder[]
+}
+
+export interface MergeFilters {
+  amountMin: string
+  amountMax: string
+  dateStart: string
+  dateEnd: string
+  ivcTitles: string[]
 }
 
 export interface AppState {
