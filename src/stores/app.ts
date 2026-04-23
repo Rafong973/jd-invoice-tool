@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getCookie, saveCookie, deleteCookie, fetchInvoices, fetchBatchOrders, checkMerge, getTitles, saveTitles } from '@/api'
-import type { InvoiceItem, MergeGroup } from '@/types'
+import type { BatchOrderSeed, InvoiceItem, MergeGroup, MergeOrder } from '@/types'
+import { getMergeOrderAmount, isMergeOrderAmountResolved } from '@/utils/mergeOrder'
 import type { InvoiceTitle } from '@/types/title'
 
 export const useAppStore = defineStore('app', () => {
@@ -17,6 +18,127 @@ export const useAppStore = defineStore('app', () => {
   const invoiceHasMore = ref(true)
   const invoiceSeen = ref<Set<string>>(new Set())
   const titles = ref<InvoiceTitle[]>([])
+
+  type AppliedAmountResult = {
+    groups: MergeGroup[]
+    resolvedCount: number
+    unresolvedCount: number
+    unresolvedOrderIds: string[]
+  }
+
+  type BatchOrderMeta = {
+    orderAmountQuery: string
+    originalOrderInfo: unknown
+    resolvedAmount?: string | null
+  }
+
+  function mergeGroupsByOrgName(groups: MergeGroup[]): MergeGroup[] {
+    const merged = new Map<string, MergeGroup>()
+
+    groups.forEach((group) => {
+      const key = group.orgName
+      const existing = merged.get(key)
+
+      if (existing) {
+        existing.orders.push(...group.orders)
+        existing.total += group.total
+        return
+      }
+
+      merged.set(key, {
+        orgName: group.orgName,
+        total: group.total,
+        orders: [...group.orders],
+      })
+    })
+
+    return Array.from(merged.values())
+  }
+
+  function buildResolvedAmountMap(batchOrders: BatchOrderSeed[]): Map<string, string> {
+    const amountMap = new Map<string, string>()
+
+    batchOrders.forEach((order) => {
+      if (order.orderId && order.resolvedAmount) {
+        amountMap.set(order.orderId, order.resolvedAmount)
+      }
+    })
+
+    console.log(`[DEBUG] buildResolvedAmountMap candidates=${batchOrders.length} matched=${amountMap.size}`)
+    return amountMap
+  }
+
+  function buildBatchOrderMetaMap(batchOrders: BatchOrderSeed[]): Map<string, BatchOrderMeta> {
+    const metaMap = new Map<string, BatchOrderMeta>()
+
+    batchOrders.forEach((order) => {
+      if (!order.orderId) {
+        return
+      }
+
+      metaMap.set(order.orderId, {
+        orderAmountQuery: order.orderAmountQuery,
+        originalOrderInfo: order.originalOrderInfo,
+        resolvedAmount: order.resolvedAmount,
+      })
+    })
+
+    return metaMap
+  }
+
+  function applyResolvedAmounts(
+    groups: MergeGroup[],
+    amountMap: Map<string, string>,
+    metaMap: Map<string, BatchOrderMeta>,
+  ): AppliedAmountResult {
+    let resolvedCount = 0
+    let unresolvedCount = 0
+    const unresolvedOrderIds: string[] = []
+
+    const nextGroups = groups.map((group) => {
+      const orders = group.orders.map((order: MergeOrder) => {
+        const orderId = typeof order.orderId === 'string' ? order.orderId : ''
+        const resolvedAmount = orderId ? amountMap.get(orderId) : undefined
+        const meta = orderId ? metaMap.get(orderId) : undefined
+        const nextOrder = resolvedAmount
+          ? {
+              ...order,
+              resolvedAmount,
+              amountResolved: true,
+              originalOrderInfo: meta?.originalOrderInfo ?? order.originalOrderInfo,
+              orderAmountQuery: meta?.orderAmountQuery ?? order.orderAmountQuery,
+            }
+          : {
+              ...order,
+              amountResolved: false,
+              originalOrderInfo: meta?.originalOrderInfo ?? order.originalOrderInfo,
+              orderAmountQuery: meta?.orderAmountQuery ?? order.orderAmountQuery,
+            }
+
+        if (isMergeOrderAmountResolved(nextOrder)) {
+          resolvedCount += 1
+        } else {
+          unresolvedCount += 1
+          unresolvedOrderIds.push(orderId || '(missing-order-id)')
+        }
+
+        return nextOrder
+      })
+
+      return {
+        ...group,
+        orders,
+        total: orders.reduce((sum, order) => sum + getMergeOrderAmount(order), 0),
+      }
+    })
+
+    return {
+      groups: nextGroups,
+      resolvedCount,
+      unresolvedCount,
+      unresolvedOrderIds,
+    }
+  }
 
   async function initCookie() {
     const saved = await getCookie()
@@ -117,21 +239,24 @@ export const useAppStore = defineStore('app', () => {
     error.value = null
     try {
       console.log('[DEBUG] fetchBatchOrders start')
-      const orders = await fetchBatchOrders()
-      console.log('[DEBUG] fetchBatchOrders result count:', orders.length)
-      console.log('[DEBUG] fetchBatchOrders sample:', JSON.stringify(orders.slice(0, 2)))
+      const batchOrders = await fetchBatchOrders()
+      console.log('[DEBUG] fetchBatchOrders result count:', batchOrders.length)
+      console.log('[DEBUG] fetchBatchOrders sample:', JSON.stringify(batchOrders.slice(0, 2)))
 
-      if (orders.length === 0) {
+      if (batchOrders.length === 0) {
         mergeGroups.value = []
         hasFetchedMergeGroups.value = true
         return
       }
 
+      const resolvedAmountMap = buildResolvedAmountMap(batchOrders)
+      const batchOrderMetaMap = buildBatchOrderMetaMap(batchOrders)
+      const originalOrderInfos = batchOrders.map((order) => order.originalOrderInfo)
       const BATCH_SIZE = 40
       const allGroups: MergeGroup[] = []
 
-      for (let i = 0; i < orders.length; i += BATCH_SIZE) {
-        const batch = orders.slice(i, i + BATCH_SIZE)
+      for (let i = 0; i < originalOrderInfos.length; i += BATCH_SIZE) {
+        const batch = originalOrderInfos.slice(i, i + BATCH_SIZE)
         const orderListJson = encodeURIComponent(JSON.stringify(batch))
         console.log(`[DEBUG] checkMerge batch ${i / BATCH_SIZE + 1}, orders: ${batch.length}`)
         const groups = await checkMerge(orderListJson)
@@ -142,7 +267,12 @@ export const useAppStore = defineStore('app', () => {
       }
 
       console.log('[DEBUG] allGroups total:', allGroups.length)
-      mergeGroups.value = allGroups
+      const applied = applyResolvedAmounts(allGroups, resolvedAmountMap, batchOrderMetaMap)
+      console.log(`[DEBUG] amount resolution summary candidates=${batchOrders.length} amountApiMatched=${resolvedAmountMap.size} resolvedOrders=${applied.resolvedCount} unresolvedOrders=${applied.unresolvedCount}`)
+      if (applied.unresolvedOrderIds.length > 0) {
+        console.warn('[DEBUG] unresolved orderIds:', applied.unresolvedOrderIds)
+      }
+      mergeGroups.value = mergeGroupsByOrgName(applied.groups)
       hasFetchedMergeGroups.value = true
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e)
@@ -151,6 +281,33 @@ export const useAppStore = defineStore('app', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  function removeMergedOrders(exchangedOrders: MergeOrder[]) {
+    const exchangedIds = new Set(
+      exchangedOrders
+        .map((order) => (typeof order.orderId === 'string' ? order.orderId : ''))
+        .filter(Boolean),
+    )
+
+    if (exchangedIds.size === 0) {
+      return
+    }
+
+    mergeGroups.value = mergeGroups.value
+      .map((group) => {
+        const orders = group.orders.filter((order) => {
+          const orderId = typeof order.orderId === 'string' ? order.orderId : ''
+          return !exchangedIds.has(orderId)
+        })
+
+        return {
+          ...group,
+          orders,
+          total: orders.reduce((sum, order) => sum + getMergeOrderAmount(order), 0),
+        }
+      })
+      .filter((group) => group.orders.length > 0)
   }
 
   return {
@@ -170,6 +327,7 @@ export const useAppStore = defineStore('app', () => {
     loadInvoices,
     loadMoreInvoices,
     loadMergeGroups,
+    removeMergedOrders,
     titles,
     loadTitles,
     saveTitlesData,

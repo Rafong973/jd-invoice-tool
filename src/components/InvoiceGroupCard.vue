@@ -9,7 +9,7 @@
             :indeterminate.prop="indeterminate"
             @change="toggleSelectAll"
           />
-          <h3 class="org-name">{{ group.orgName }}</h3>
+          <h3 class="org-name">{{ group.displayName || group.orgName }}</h3>
         </label>
       </div>
       <span class="total">
@@ -32,6 +32,7 @@
             type="checkbox"
             class="order-checkbox"
             :checked="selectedIds.has(index)"
+            @click.stop
             @change.stop="toggleOrder(index)"
           />
           <div class="order-content">
@@ -41,6 +42,7 @@
               <span>开票 {{ formatMergeDateTime(getMergeOrderInvoiceTime(order)) }}</span>
               <span>公司 {{ getMergeOrderCompany(order) || '--' }}</span>
               <span>抬头 {{ getMergeOrderTitle(order) || '--' }}</span>
+              <span v-if="!isMergeOrderAmountResolved(order)" class="amount-warning">金额未校准</span>
             </div>
           </div>
           <span class="price">¥{{ formatMergeOrderAmount(order) }}</span>
@@ -61,7 +63,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { MergeGroup, MergeOrder } from '@/types'
+import type { DisplayMergeGroup, MergeOrder } from '@/types'
 import {
   formatMergeDateTime,
   formatMergeOrderAmount,
@@ -71,14 +73,15 @@ import {
   getMergeOrderOrderTime,
   getMergeOrderSku,
   getMergeOrderTitle,
+  isMergeOrderAmountResolved,
 } from '@/utils/mergeOrder'
 
 const props = defineProps<{
-  group: MergeGroup
+  group: DisplayMergeGroup
 }>()
 
 defineEmits<{
-  exchange: [group: MergeGroup, orders: MergeOrder[]]
+  exchange: [group: DisplayMergeGroup, orders: MergeOrder[]]
 }>()
 
 const selectedIds = ref<Set<number>>(new Set())
@@ -161,7 +164,7 @@ function getSelectedOrders(): MergeOrder[] {
   cursor: pointer;
 }
 
-.checkbox-label input[type="checkbox"] {
+.checkbox-label input[type='checkbox'] {
   width: 16px;
   height: 16px;
   cursor: pointer;
@@ -244,6 +247,14 @@ function getSelectedOrders(): MergeOrder[] {
   gap: 8px;
   color: #666;
   font-size: 12px;
+}
+
+.amount-warning {
+  color: #b54708;
+  background: #fff4e5;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 600;
 }
 
 .price {

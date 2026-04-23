@@ -8,8 +8,8 @@
       <div class="modal-body">
         <div class="confirm-info">
           <div class="info-row">
-            <span class="label">开票方:</span>
-            <span class="value">{{ group?.orgName }}</span>
+            <span class="label">分组:</span>
+            <span class="value">{{ groupTitle }}</span>
           </div>
           <div class="info-row">
             <span class="label">订单数:</span>
@@ -26,20 +26,12 @@
           <select v-model="selectedTitleId" class="select">
             <option value="">请选择发票抬头</option>
             <optgroup label="个人">
-              <option
-                v-for="title in personalTitles"
-                :key="title.id"
-                :value="title.id"
-              >
+              <option v-for="title in personalTitles" :key="title.id" :value="title.id">
                 {{ title.titleName }} - {{ title.email }}{{ title.isDefault ? ' (默认)' : '' }}
               </option>
             </optgroup>
             <optgroup label="公司">
-              <option
-                v-for="title in companyTitles"
-                :key="title.id"
-                :value="title.id"
-              >
+              <option v-for="title in companyTitles" :key="title.id" :value="title.id">
                 {{ title.titleName }} - {{ title.taxNo }} - {{ title.email }}{{ title.isDefault ? ' (默认)' : '' }}
               </option>
             </optgroup>
@@ -57,6 +49,7 @@
                   <span>开票 {{ formatMergeDateTime(getMergeOrderInvoiceTime(order)) }}</span>
                   <span>公司 {{ getMergeOrderCompany(order) || '--' }}</span>
                   <span>抬头 {{ getMergeOrderTitle(order) || '--' }}</span>
+                  <span v-if="!isMergeOrderAmountResolved(order)" class="amount-warning">金额未校准</span>
                 </div>
               </div>
               <span class="price">¥{{ formatMergeOrderAmount(order) }}</span>
@@ -66,8 +59,8 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" @click="$emit('close')">取消</button>
-        <button class="btn btn-primary" :disabled="!selectedTitleId" @click="$emit('confirm', selectedTitleId)">
-          确认换开
+        <button class="btn btn-primary" :disabled="!selectedTitleId || submitting" @click="$emit('confirm', selectedTitleId)">
+          {{ submitting ? '提交中...' : '确认换开' }}
         </button>
       </div>
     </div>
@@ -76,7 +69,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { MergeGroup, MergeOrder } from '@/types'
+import type { DisplayMergeGroup, MergeOrder } from '@/types'
 import type { InvoiceTitle } from '@/types/title'
 import {
   formatMergeDateTime,
@@ -87,13 +80,15 @@ import {
   getMergeOrderOrderTime,
   getMergeOrderSku,
   getMergeOrderTitle,
+  isMergeOrderAmountResolved,
 } from '@/utils/mergeOrder'
 
 const props = defineProps<{
   visible: boolean
-  group: MergeGroup | null
+  group: DisplayMergeGroup | null
   selectedOrders: MergeOrder[]
   titles: InvoiceTitle[]
+  submitting?: boolean
 }>()
 
 defineEmits<{
@@ -116,9 +111,9 @@ watch(
 const personalTitles = computed(() => props.titles.filter((title) => title.titleType === 'personal'))
 const companyTitles = computed(() => props.titles.filter((title) => title.titleType === 'company'))
 
-const selectedTotal = computed(() => {
-  return props.selectedOrders.reduce((sum, order) => sum + getMergeOrderAmount(order), 0)
-})
+const selectedTotal = computed(() => props.selectedOrders.reduce((sum, order) => sum + getMergeOrderAmount(order), 0))
+
+const groupTitle = computed(() => props.group?.displayName || props.group?.orgName || '--')
 </script>
 
 <style scoped>
@@ -203,6 +198,14 @@ const selectedTotal = computed(() => {
 
 .value.amount {
   color: #e2231a;
+  font-weight: 600;
+}
+
+.amount-warning {
+  color: #b54708;
+  background: #fff4e5;
+  border-radius: 999px;
+  padding: 2px 8px;
   font-weight: 600;
 }
 

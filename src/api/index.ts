@@ -1,6 +1,14 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { InvoiceItem, InvoiceFile, MergeGroup, MergeOrder } from '@/types'
+import type {
+  BatchOrderSeed,
+  InvoiceItem,
+  InvoiceFile,
+  MergeExchangeResult,
+  MergeExchangeTitleInput,
+  MergeGroup,
+  MergeOrder,
+} from '@/types'
 import type { InvoiceTitle } from '@/types/title'
 
 export async function openBrowser(url: string): Promise<void> {
@@ -83,12 +91,26 @@ export async function fetchInvoiceDetail(orderId: string): Promise<InvoiceFile[]
   return invoke<InvoiceFile[]>('fetch_invoice_detail', { orderId })
 }
 
-export async function fetchBatchOrders(): Promise<MergeOrder[]> {
-  return invoke<MergeOrder[]>('fetch_batch_orders')
+export async function fetchBatchOrders(): Promise<BatchOrderSeed[]> {
+  return invoke<BatchOrderSeed[]>('fetch_batch_orders')
 }
 
 export async function checkMerge(orderListJson: string): Promise<MergeGroup[]> {
   return invoke<MergeGroup[]>('check_merge', { orderListJson })
+}
+
+export async function fetchBatchOrderAmounts(orderAmountQueries: string[]): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>('fetch_batch_order_amounts', { orderAmountQueries })
+}
+
+export async function submitMergeExchange(
+  selectedOrders: MergeOrder[],
+  title: MergeExchangeTitleInput,
+): Promise<MergeExchangeResult> {
+  return invoke<MergeExchangeResult>('submit_merge_exchange', {
+    selectedOrders,
+    title,
+  })
 }
 
 export async function downloadInvoice(url: string, filename: string): Promise<string> {
