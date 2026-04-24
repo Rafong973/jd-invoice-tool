@@ -4,6 +4,10 @@ node_modules/
 # Build outputs
 dist/
 src-tauri/target/
+chunk-*.js
+ivcTitle.*.js
+tmp_*.js
+tmp_*.html
 
 # Local data (cookies, titles, etc.)
 src-tauri/data/
