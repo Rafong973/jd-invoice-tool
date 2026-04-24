@@ -52,7 +52,7 @@
     <div class="card-actions">
       <button
         class="btn btn-primary"
-        :disabled="selectedCount === 0"
+        :disabled="selectedCount === 0 || !canExchangeSelection"
         @click="$emit('exchange', group, getSelectedOrders())"
       >
         申请换开 ({{ selectedCount }})
@@ -101,6 +101,14 @@ const selectedTotal = computed(() => {
     sum += getMergeOrderAmount(props.group.orders[id])
   }
   return sum
+})
+
+const canExchangeSelection = computed(() => {
+  if (props.group.kind !== 'smart') {
+    return true
+  }
+
+  return selectedTotal.value >= 100
 })
 
 watch(

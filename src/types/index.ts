@@ -79,6 +79,8 @@ export interface DisplayMergeGroup extends MergeGroup {
 export interface MergeFilters {
   amountMin: string
   amountMax: string
+  comboAmountMin: string
+  comboAmountMax: string
   dateStart: string
   dateEnd: string
   ivcTitles: string[]
