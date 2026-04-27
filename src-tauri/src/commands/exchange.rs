@@ -135,6 +135,38 @@ fn extract_original_order_info(order: &serde_json::Value) -> Result<serde_json::
         .ok_or_else(|| format!("Order {} is missing originalOrderInfo", order_id))
 }
 
+fn slim_merge_order(order: &serde_json::Value) -> serde_json::Value {
+    let detail_list = order
+        .get("detailList")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .take(1)
+                .map(|item| {
+                    json!({
+                        "skuName": extract_string(item.get("skuName")),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    json!({
+        "orderId": extract_string(order.get("orderId")),
+        "orgId": order.get("orgId").cloned().unwrap_or(serde_json::Value::Null),
+        "orderTime": extract_string(order.get("orderTime")),
+        "ivcTime": extract_string(order.get("ivcTime")),
+        "ivcCompany": extract_string(order.get("ivcCompany")),
+        "ivcTitle": extract_string(order.get("ivcTitle")),
+        "ivcAmount": order.get("ivcAmount").cloned().unwrap_or(serde_json::Value::Null),
+        "totalAmount": order.get("totalAmount").cloned().unwrap_or(serde_json::Value::Null),
+        "actualPayMoney": order.get("actualPayMoney").cloned().unwrap_or(serde_json::Value::Null),
+        "detailList": detail_list,
+        "originalOrderInfo": order.get("originalOrderInfo").cloned().unwrap_or_else(|| order.clone()),
+    })
+}
+
 fn build_batch_request_json(
     title: &MergeExchangeTitleInput,
     req: &serde_json::Value,
@@ -212,7 +244,7 @@ pub async fn check_merge(order_list_json: String) -> Result<Vec<MergeGroup>, Str
             for order in order_list {
                 let amount = extract_amount(order);
                 total += amount;
-                orders.push(order.clone());
+                orders.push(slim_merge_order(order));
             }
         }
 

@@ -17,7 +17,7 @@ type SmartCandidate = {
 type SmartMaskSolution = {
   comboMasks: number[]
   comboCount: number
-  excesses: number[]
+  comboTimeSpreads: number[]
   usedOrderTimes: number[]
   usedIndices: number[]
 }
@@ -25,6 +25,7 @@ type SmartMaskSolution = {
 type GreedyComboState = {
   indices: number[]
   orderTimeKeys: number[]
+  timeSpread: number
 }
 
 export const DEFAULT_MERGE_FILTERS: MergeFilters = {
@@ -76,6 +77,16 @@ function parseOrderTimeKey(order: MergeOrder): number {
   return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER
 }
 
+function parseSmartAgeTimeKey(order: MergeOrder): number {
+  const raw = getMergeOrderInvoiceTime(order) || getMergeOrderOrderTime(order)
+  if (!raw) {
+    return Number.MAX_SAFE_INTEGER
+  }
+
+  const parsed = Date.parse(raw.replace(' ', 'T'))
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER
+}
+
 function compareNumberVectors(left: number[], right: number[]): number {
   const size = Math.min(left.length, right.length)
   for (let index = 0; index < size; index += 1) {
@@ -92,7 +103,7 @@ function sortSmartCandidates(orders: MergeOrder[]): SmartCandidate[] {
       amountCents: toAmountCents(getMergeOrderAmount(order)),
       order,
       orderId: readText(order.orderId) || `${index}`,
-      orderTimeKey: parseOrderTimeKey(order),
+      orderTimeKey: parseSmartAgeTimeKey(order),
     }))
     .filter((candidate) => candidate.amountCents > 0 && candidate.amountCents < SMART_THRESHOLD_CENTS)
     .sort((left, right) => {
@@ -156,6 +167,18 @@ function buildComboOrderTimes(candidates: SmartCandidate[], mask: number): numbe
   return getIndicesFromMask(mask).map((index) => candidates[index].orderTimeKey)
 }
 
+function getNumberRange(values: number[]): number {
+  if (values.length <= 1) {
+    return 0
+  }
+
+  return values[values.length - 1] - values[0]
+}
+
+function buildComboTimeSpread(candidates: SmartCandidate[], mask: number): number {
+  return getNumberRange(buildComboOrderTimes(candidates, mask).sort((left, right) => left - right))
+}
+
 function compareMaskSolutions(left: SmartMaskSolution | null, right: SmartMaskSolution | null): number {
   if (!left && !right) {
     return 0
@@ -170,12 +193,12 @@ function compareMaskSolutions(left: SmartMaskSolution | null, right: SmartMaskSo
     return left.comboCount - right.comboCount
   }
 
-  const excessComparison = compareNumberVectors(
-    right.excesses,
-    left.excesses,
+  const spreadComparison = compareNumberVectors(
+    right.comboTimeSpreads,
+    left.comboTimeSpreads,
   )
-  if (excessComparison !== 0) {
-    return excessComparison
+  if (spreadComparison !== 0) {
+    return spreadComparison
   }
 
   const usedTimeComparison = compareNumberVectors(
@@ -215,10 +238,10 @@ function buildSmartCombosExact(candidates: SmartCandidate[]): SmartCandidate[][]
 
   validComboMasksByFirst.forEach((masks) => {
     masks.sort((left, right) => {
-      const leftExcess = subsetSums[left] - SMART_THRESHOLD_CENTS
-      const rightExcess = subsetSums[right] - SMART_THRESHOLD_CENTS
-      if (leftExcess !== rightExcess) {
-        return leftExcess - rightExcess
+      const leftSpread = buildComboTimeSpread(candidates, left)
+      const rightSpread = buildComboTimeSpread(candidates, right)
+      if (leftSpread !== rightSpread) {
+        return leftSpread - rightSpread
       }
 
       const leftTimes = buildComboOrderTimes(candidates, left)
@@ -239,7 +262,7 @@ function buildSmartCombosExact(candidates: SmartCandidate[]): SmartCandidate[][]
       return {
         comboMasks: [],
         comboCount: 0,
-        excesses: [],
+        comboTimeSpreads: [],
         usedOrderTimes: [],
         usedIndices: [],
       }
@@ -269,7 +292,7 @@ function buildSmartCombosExact(candidates: SmartCandidate[]): SmartCandidate[][]
         const comboSolution: SmartMaskSolution = {
           comboMasks: [comboMask, ...remainder.comboMasks],
           comboCount: remainder.comboCount + 1,
-          excesses: insertSortedNumber(remainder.excesses, subsetSums[comboMask] - SMART_THRESHOLD_CENTS),
+          comboTimeSpreads: insertSortedNumber(remainder.comboTimeSpreads, buildComboTimeSpread(candidates, comboMask)),
           usedOrderTimes: mergeSortedNumbers(
             buildComboOrderTimes(candidates, comboMask),
             remainder.usedOrderTimes,
@@ -308,6 +331,10 @@ function compareGreedyStates(left: GreedyComboState | null, right: GreedyComboSt
     return 1
   }
 
+  if (left.timeSpread !== right.timeSpread) {
+    return right.timeSpread - left.timeSpread
+  }
+
   const timeComparison = compareNumberVectors(right.orderTimeKeys, left.orderTimeKeys)
   if (timeComparison !== 0) {
     return timeComparison
@@ -321,6 +348,7 @@ function findBestGreedyCombo(candidates: SmartCandidate[]): SmartCandidate[] {
   dp[0] = {
     indices: [],
     orderTimeKeys: [],
+    timeSpread: 0,
   }
 
   candidates.forEach((candidate, index) => {
@@ -331,9 +359,11 @@ function findBestGreedyCombo(candidates: SmartCandidate[]): SmartCandidate[] {
       }
 
       const nextSum = sum + candidate.amountCents
+      const orderTimeKeys = insertSortedNumber(previous.orderTimeKeys, candidate.orderTimeKey)
       const nextState: GreedyComboState = {
         indices: [...previous.indices, index],
-        orderTimeKeys: [...previous.orderTimeKeys, candidate.orderTimeKey],
+        orderTimeKeys,
+        timeSpread: getNumberRange(orderTimeKeys),
       }
 
       if (compareGreedyStates(nextState, dp[nextSum]) > 0) {
@@ -351,13 +381,15 @@ function findBestGreedyCombo(candidates: SmartCandidate[]): SmartCandidate[] {
       continue
     }
 
-    if (bestSum === -1 || sum < bestSum) {
+    if (!bestState) {
       bestSum = sum
       bestState = state
       continue
     }
 
-    if (sum === bestSum && compareGreedyStates(state, bestState) > 0) {
+    const stateComparison = compareGreedyStates(state, bestState)
+    if (stateComparison > 0 || (stateComparison === 0 && sum < bestSum)) {
+      bestSum = sum
       bestState = state
     }
   }
@@ -431,6 +463,10 @@ export function getMergeOrderAmount(order: MergeOrder): number {
   }
 
   return ivcAmount ?? 0
+}
+
+export function getMergeOrderId(order: MergeOrder): string {
+  return readText(order.orderId)
 }
 
 export function isMergeOrderAmountResolved(order: MergeOrder): boolean {
@@ -543,11 +579,12 @@ export function buildOriginalDisplayGroups(groups: MergeGroup[]): DisplayMergeGr
   }))
 }
 
-export function buildSmartMergeGroups(groups: MergeGroup[]): DisplayMergeGroup[] {
+export function buildSmartMergeGroups(groups: MergeGroup[], heldOrderIds: Set<string> = new Set()): DisplayMergeGroup[] {
   const result: DisplayMergeGroup[] = []
 
   groups.forEach((group) => {
-    const readyOrders = group.orders.filter((order) => isSmartExchangeEligibleAmount(getMergeOrderAmount(order)))
+    const availableOrders = group.orders.filter((order) => !heldOrderIds.has(getMergeOrderId(order)))
+    const readyOrders = availableOrders.filter((order) => isSmartExchangeEligibleAmount(getMergeOrderAmount(order)))
     const smartGroups: DisplayMergeGroup[] = readyOrders.map((order) => ({
       orgName: group.orgName,
       total: getMergeOrderAmount(order),
@@ -557,7 +594,7 @@ export function buildSmartMergeGroups(groups: MergeGroup[]): DisplayMergeGroup[]
       kind: 'smart',
     }))
 
-    const smartCombos = buildSmartCombos(sortSmartCandidates(group.orders))
+    const smartCombos = buildSmartCombos(sortSmartCandidates(availableOrders))
     smartCombos.forEach((combo) => {
       const orders = combo.map((candidate) => candidate.order)
       const total = orders.reduce((sum, order) => sum + getMergeOrderAmount(order), 0)

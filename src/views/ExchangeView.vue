@@ -15,7 +15,7 @@
 
       <div class="actions">
         <button class="btn btn-primary" :disabled="store.loading || bulkSubmitting" @click="loadGroups">
-          {{ store.loading ? '处理中...' : '获取可换开发票' }}
+          {{ fetchButtonText }}
         </button>
         <button class="btn btn-secondary" :disabled="store.loading || bulkSubmitting" @click="showFilters = !showFilters">
           {{ showFilters ? '收起筛选' : '筛选条件' }}
@@ -67,7 +67,7 @@
 
       <div class="filter-actions">
         <span class="filter-tip">
-          原始分组按订单金额筛选；智能凑单模式会额外按组合金额筛选，默认只看组合金额大于等于 100。
+          原始分组按订单金额筛选；智能凑单模式会额外按组合金额筛选，默认只看组合金额大于等于 99.99。
         </span>
         <div class="filter-buttons">
           <button class="btn btn-secondary" @click="applyCommonFilters">常见筛选</button>
@@ -85,9 +85,30 @@
       `orderId`。
     </div>
 
+    <div v-if="mode === 'smart' && heldOrders.length > 0" class="hold-panel card">
+      <div class="hold-header">
+        <div>
+          <h3>已 Hold 发票</h3>
+          <p>这些发票暂不参与智能凑单，推荐组合已基于剩余发票重新生成。</p>
+        </div>
+        <button class="btn btn-secondary btn-small" @click="clearHeldOrders">全部取消 Hold</button>
+      </div>
+
+      <div class="hold-list">
+        <div v-for="order in heldOrders" :key="getMergeOrderId(order)" class="hold-item">
+          <div class="hold-main">
+            <strong>{{ getMergeOrderSku(order) }}</strong>
+            <span>￥{{ getMergeOrderAmount(order).toFixed(2) }}</span>
+            <span>{{ formatMergeDateTime(getMergeOrderInvoiceTime(order)) }}</span>
+          </div>
+          <button class="hold-remove" type="button" @click="toggleHoldOrder(order)">取消 Hold</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="!store.hasFetchedMergeGroups && !store.loading" class="empty">
       <p>点击按钮获取可换开的发票分组</p>
-      <button class="btn btn-primary" @click="loadGroups">开始获取</button>
+      <button class="btn btn-primary" @click="loadGroups">加载缓存</button>
     </div>
 
     <div v-else-if="displayGroups.length === 0 && store.hasFetchedMergeGroups && !store.loading" class="empty">
@@ -104,18 +125,22 @@
         <button
           v-if="showBulkExchangeButton"
           class="btn btn-primary bulk-btn"
-          :disabled="store.loading || submittingExchange || bulkSubmitting"
+          :disabled="store.loading || submittingExchange || bulkSubmitting || selectedBulkGroups.length === 0"
           @click="handleBulkExchange"
         >
-          {{ bulkSubmitting ? `批量换开中 (${bulkProgressText})` : '一键换开全部推荐组合' }}
+          {{ bulkSubmitting ? `批量换开中 (${bulkProgressText})` : `一键换开选中分组 (${selectedBulkGroups.length})` }}
         </button>
       </div>
 
-      <InvoiceGroupCard
-        v-for="(group, index) in displayGroups"
-        :key="`${group.kind}-${group.sourceOrgName}-${group.comboIndex ?? index}-${group.orders.length}`"
-        :group="group"
+      <InvoiceGroupTable
+        :key="mode"
+        :groups="displayGroups"
+        :secondary-groups="secondaryDisplayGroups"
+        :held-order-ids="heldOrderIds"
+        :mode="mode"
         @exchange="handleExchange"
+        @selection-change="selectedBulkGroups = $event"
+        @toggle-hold="toggleHoldOrder"
       />
     </div>
 
@@ -136,7 +161,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { submitMergeExchange } from '@/api'
-import InvoiceGroupCard from '@/components/InvoiceGroupCard.vue'
+import InvoiceGroupTable from '@/components/InvoiceGroupTable.vue'
 import LoadingOverlay from '@/components/LoadingOverlay.vue'
 import ExchangeConfirmDialog from '@/components/ExchangeConfirmDialog.vue'
 import { useAppStore } from '@/stores/app'
@@ -146,6 +171,11 @@ import {
   buildSmartMergeGroups,
   DEFAULT_MERGE_FILTERS,
   filterMergeGroups,
+  formatMergeDateTime,
+  getMergeOrderAmount,
+  getMergeOrderId,
+  getMergeOrderInvoiceTime,
+  getMergeOrderSku,
   getMergeOrderTitle,
   isMergeOrderAmountResolved,
 } from '@/utils/mergeOrder'
@@ -160,12 +190,14 @@ const bulkSubmitting = ref(false)
 const bulkProgressText = ref('')
 const confirmGroup = ref<DisplayMergeGroup | null>(null)
 const confirmOrders = ref<MergeOrder[]>([])
+const selectedBulkGroups = ref<DisplayMergeGroup[]>([])
+const heldOrderIds = ref<Set<string>>(new Set())
 const filters = reactive<MergeFilters>({ ...DEFAULT_MERGE_FILTERS })
 const originalModeFilters = ref<MergeFilters>({ ...DEFAULT_MERGE_FILTERS })
 const smartModeFilters = ref<MergeFilters>({
   ...DEFAULT_MERGE_FILTERS,
   amountMax: '99.99',
-  comboAmountMin: '100',
+  comboAmountMin: '99.99',
 })
 const smartFiltersInitialized = ref(false)
 
@@ -175,6 +207,29 @@ onMounted(() => {
 
 const allOrders = computed(() => store.mergeGroups.flatMap((group) => group.orders))
 const unresolvedAmountCount = computed(() => allOrders.value.filter((order) => !isMergeOrderAmountResolved(order)).length)
+const heldOrders = computed(() => {
+  const result: MergeOrder[] = []
+  const seenIds = new Set<string>()
+
+  allOrders.value.forEach((order) => {
+    const orderId = getMergeOrderId(order)
+    if (!orderId || seenIds.has(orderId) || !heldOrderIds.value.has(orderId)) {
+      return
+    }
+
+    seenIds.add(orderId)
+    result.push(order)
+  })
+
+  return result
+})
+
+const fetchButtonText = computed(() => {
+  if (store.loading) {
+    return '处理中...'
+  }
+  return store.hasLoadedMergeGroupCache ? '重新获取' : '加载缓存'
+})
 
 const titleOptions = computed(() => {
   const titles = new Set<string>()
@@ -219,24 +274,33 @@ function getSmartDefaultFilters(): MergeFilters {
   return {
     ...DEFAULT_MERGE_FILTERS,
     amountMax: '99.99',
-    comboAmountMin: '100',
+    comboAmountMin: '99.99',
     ivcTitles: titleOptions.value.filter((title) => !title.includes('公司')),
   }
 }
 
 const filteredGroups = computed(() => filterMergeGroups(store.mergeGroups, filters))
 const originalDisplayGroups = computed(() => buildOriginalDisplayGroups(filteredGroups.value))
-const smartDisplayGroups = computed(() => buildSmartMergeGroups(filteredGroups.value))
+const smartDisplayGroups = computed(() => buildSmartMergeGroups(filteredGroups.value, heldOrderIds.value))
 
 const displayGroups = computed(() => {
   const groups = mode.value === 'smart' ? smartDisplayGroups.value : originalDisplayGroups.value
   return filterDisplayGroupsByComboAmount(groups, filters)
 })
 
+const secondaryDisplayGroups = computed(() => {
+  if (mode.value !== 'smart') {
+    return []
+  }
+
+  const visibleGroups = new Set(displayGroups.value)
+  return smartDisplayGroups.value.filter((group) => !visibleGroups.has(group))
+})
+
 const defaultTitle = computed(() => store.titles.find((item) => item.isDefault) ?? null)
 
 const showBulkExchangeButton = computed(() => {
-  return mode.value === 'smart' && displayGroups.value.length > 0
+  return mode.value === 'smart' && smartDisplayGroups.value.length > 0
 })
 
 const totalAmount = computed(() => displayGroups.value.reduce((sum, group) => sum + group.total, 0).toFixed(2))
@@ -275,6 +339,16 @@ watch(titleOptions, (nextTitles) => {
   filters.ivcTitles = filters.ivcTitles.filter((title) => nextTitles.includes(title))
 }, { immediate: true })
 
+watch(allOrders, (orders) => {
+  const validOrderIds = new Set(orders.map((order) => getMergeOrderId(order)).filter(Boolean))
+  const nextHeldOrderIds = new Set(Array.from(heldOrderIds.value).filter((orderId) => validOrderIds.has(orderId)))
+  const changed = nextHeldOrderIds.size !== heldOrderIds.value.size
+    || Array.from(nextHeldOrderIds).some((orderId) => !heldOrderIds.value.has(orderId))
+  if (changed) {
+    heldOrderIds.value = nextHeldOrderIds
+  }
+})
+
 watch(filters, (nextFilters) => {
   const snapshot: MergeFilters = {
     amountMin: nextFilters.amountMin,
@@ -295,6 +369,7 @@ watch(filters, (nextFilters) => {
 }, { deep: true })
 
 watch(mode, (nextMode) => {
+  selectedBulkGroups.value = []
   const nextFilters = nextMode === 'smart' ? smartModeFilters.value : originalModeFilters.value
   Object.assign(filters, {
     ...nextFilters,
@@ -303,6 +378,11 @@ watch(mode, (nextMode) => {
 }, { immediate: true })
 
 async function loadGroups() {
+  if (!store.hasLoadedMergeGroupCache) {
+    store.loadCachedMergeGroups()
+    return
+  }
+
   await store.loadMergeGroups()
 }
 
@@ -317,11 +397,33 @@ function applyCommonFilters() {
     ...DEFAULT_MERGE_FILTERS,
     amountMin: '100.01',
     amountMax: mode.value === 'smart' ? '99.99' : '',
-    comboAmountMin: mode.value === 'smart' ? '100' : '',
+    comboAmountMin: mode.value === 'smart' ? '99.99' : '',
     comboAmountMax: '',
     dateEnd: `${currentYear}-02-05`,
     ivcTitles: titleOptions.value.filter((title) => !title.includes('公司')),
   })
+}
+
+function toggleHoldOrder(order: MergeOrder) {
+  const orderId = getMergeOrderId(order)
+  if (!orderId) {
+    return
+  }
+
+  const nextHeldOrderIds = new Set(heldOrderIds.value)
+  if (nextHeldOrderIds.has(orderId)) {
+    nextHeldOrderIds.delete(orderId)
+  } else {
+    nextHeldOrderIds.add(orderId)
+  }
+
+  heldOrderIds.value = nextHeldOrderIds
+  selectedBulkGroups.value = []
+}
+
+function clearHeldOrders() {
+  heldOrderIds.value = new Set()
+  selectedBulkGroups.value = []
 }
 
 function handleExchange(group: DisplayMergeGroup, orders: MergeOrder[]) {
@@ -393,14 +495,14 @@ async function handleBulkExchange() {
     return
   }
 
-  const smartGroups = displayGroups.value.filter((group) => group.kind === 'smart')
+  const smartGroups = selectedBulkGroups.value.filter((group) => group.kind === 'smart')
   if (smartGroups.length === 0) {
-    alert('当前没有可批量换开的推荐组合')
+    alert('请先勾选要批量换开的推荐组合')
     return
   }
 
   const confirmed = window.confirm(
-    `将使用默认抬头“${title.titleName}”批量换开 ${smartGroups.length} 个推荐组合，是否继续？`,
+    `将使用默认抬头“${title.titleName}”批量换开选中的 ${smartGroups.length} 个推荐组合，是否继续？`,
   )
   if (!confirmed) {
     return
@@ -504,6 +606,76 @@ async function handleBulkExchange() {
   font-size: 14px;
 }
 
+.hold-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.hold-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.hold-header h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.hold-header p {
+  margin: 0;
+  color: #666;
+  font-size: 13px;
+}
+
+.hold-list {
+  display: grid;
+  gap: 8px;
+}
+
+.hold-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.hold-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: #666;
+  font-size: 13px;
+}
+
+.hold-main strong {
+  color: #333;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hold-remove {
+  border: 0;
+  background: transparent;
+  color: #e2231a;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-small {
+  padding: 6px 10px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .filter-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -597,6 +769,9 @@ async function handleBulkExchange() {
 
   .summary-bar,
   .actions,
+  .hold-header,
+  .hold-item,
+  .hold-main,
   .filter-actions,
   .empty-actions,
   .filter-buttons {

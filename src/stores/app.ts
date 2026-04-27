@@ -6,11 +6,14 @@ import { getMergeOrderAmount, isMergeOrderAmountResolved } from '@/utils/mergeOr
 import type { InvoiceTitle } from '@/types/title'
 
 export const useAppStore = defineStore('app', () => {
+  const MERGE_GROUP_CACHE_KEY = 'jd-invoice-tool:merge-groups'
+
   const isLoggedIn = ref(false)
   const cookie = ref<string | null>(null)
   const invoices = ref<InvoiceItem[]>([])
   const mergeGroups = ref<MergeGroup[]>([])
   const hasFetchedMergeGroups = ref(false)
+  const hasLoadedMergeGroupCache = ref(false)
   const loading = ref(false)
   const loadingMore = ref(false)
   const error = ref<string | null>(null)
@@ -53,6 +56,26 @@ export const useAppStore = defineStore('app', () => {
     })
 
     return Array.from(merged.values())
+  }
+
+  function saveMergeGroupCache(groups: MergeGroup[]) {
+    localStorage.setItem(MERGE_GROUP_CACHE_KEY, JSON.stringify(groups))
+  }
+
+  function readMergeGroupCache(): MergeGroup[] | null {
+    const cached = localStorage.getItem(MERGE_GROUP_CACHE_KEY)
+    if (!cached) {
+      return null
+    }
+
+    try {
+      const parsed = JSON.parse(cached)
+      return Array.isArray(parsed) ? parsed as MergeGroup[] : null
+    } catch (e) {
+      console.warn('[DEBUG] invalid merge group cache:', e)
+      localStorage.removeItem(MERGE_GROUP_CACHE_KEY)
+      return null
+    }
   }
 
   function buildResolvedAmountMap(batchOrders: BatchOrderSeed[]): Map<string, string> {
@@ -178,6 +201,8 @@ export const useAppStore = defineStore('app', () => {
     isLoggedIn.value = false
     invoices.value = []
     mergeGroups.value = []
+    hasFetchedMergeGroups.value = false
+    hasLoadedMergeGroupCache.value = false
     invoicePage.value = 1
     invoiceHasMore.value = true
     invoiceSeen.value = new Set()
@@ -246,6 +271,7 @@ export const useAppStore = defineStore('app', () => {
       if (batchOrders.length === 0) {
         mergeGroups.value = []
         hasFetchedMergeGroups.value = true
+        saveMergeGroupCache(mergeGroups.value)
         return
       }
 
@@ -260,7 +286,7 @@ export const useAppStore = defineStore('app', () => {
         const orderListJson = encodeURIComponent(JSON.stringify(batch))
         console.log(`[DEBUG] checkMerge batch ${i / BATCH_SIZE + 1}, orders: ${batch.length}`)
         const groups = await checkMerge(orderListJson)
-        console.log(`[DEBUG] checkMerge result count:`, groups.length, JSON.stringify(groups.slice(0, 2)))
+        console.log(`[DEBUG] checkMerge result count:`, groups.length)
         allGroups.push(...groups)
 
         await new Promise((r) => setTimeout(r, 800))
@@ -273,7 +299,10 @@ export const useAppStore = defineStore('app', () => {
         console.warn('[DEBUG] unresolved orderIds:', applied.unresolvedOrderIds)
       }
       mergeGroups.value = mergeGroupsByOrgName(applied.groups)
+      saveMergeGroupCache(mergeGroups.value)
       hasFetchedMergeGroups.value = true
+      hasLoadedMergeGroupCache.value = true
+      console.log(`[DEBUG] loadMergeGroups done groups=${mergeGroups.value.length}`)
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e)
       console.error('[DEBUG] loadMergeGroups error:', error.value)
@@ -281,6 +310,22 @@ export const useAppStore = defineStore('app', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  function loadCachedMergeGroups() {
+    error.value = null
+    const cachedGroups = readMergeGroupCache()
+    hasLoadedMergeGroupCache.value = true
+    hasFetchedMergeGroups.value = true
+
+    if (!cachedGroups) {
+      mergeGroups.value = []
+      error.value = '暂无缓存，请点击重新获取'
+      return false
+    }
+
+    mergeGroups.value = cachedGroups
+    return true
   }
 
   function removeMergedOrders(exchangedOrders: MergeOrder[]) {
@@ -316,6 +361,7 @@ export const useAppStore = defineStore('app', () => {
     invoices,
     mergeGroups,
     hasFetchedMergeGroups,
+    hasLoadedMergeGroupCache,
     loading,
     loadingMore,
     invoiceHasMore,
@@ -327,6 +373,7 @@ export const useAppStore = defineStore('app', () => {
     loadInvoices,
     loadMoreInvoices,
     loadMergeGroups,
+    loadCachedMergeGroups,
     removeMergedOrders,
     titles,
     loadTitles,
