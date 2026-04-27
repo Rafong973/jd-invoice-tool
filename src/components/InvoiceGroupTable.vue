@@ -7,13 +7,12 @@
       </div>
       <div class="toolbar-actions">
         <button
-          v-if="mode === 'smart'"
           class="btn btn-secondary btn-small"
           @click="toggleSelectAllExchangeableGroups"
         >
-          {{ allExchangeableGroupsSelected ? '取消全选' : '全选可换开组合' }}
+          {{ allExchangeableGroupsSelected ? '取消全选' : selectAllText }}
         </button>
-          <span v-if="mode === 'smart'" class="selected-summary">已选 {{ selectedExchangeableGroups.length }} 组</span>
+        <span class="selected-summary">{{ selectedSummaryText }}</span>
         <label class="group-field">
           <span>分组</span>
           <select :value="groupBy" class="mini-select" @change="handleGroupByChange">
@@ -115,7 +114,7 @@
                     <table class="order-table">
                       <thead>
                         <tr>
-                          <th>选择</th>
+                          <th v-if="mode !== 'smart'">选择</th>
                           <th><button class="th-btn" @click="toggleOrderSort('sku')">商品 {{ orderSortMark('sku') }}</button></th>
                           <th><button class="th-btn" @click="toggleOrderSort('amount')">金额 {{ orderSortMark('amount') }}</button></th>
                           <th><button class="th-btn" @click="toggleOrderSort('orderTime')">下单时间 {{ orderSortMark('orderTime') }}</button></th>
@@ -127,7 +126,7 @@
                       </thead>
                       <tbody>
                         <tr v-for="orderRow in getSortedOrders(row)" :key="orderRow.key">
-                          <td>
+                          <td v-if="mode !== 'smart'">
                             <input
                               type="checkbox"
                               :checked="isOrderSelected(row.id, orderRow.index)"
@@ -253,10 +252,30 @@ const groupedRows = computed(() => {
 
 const exchangeableRows = computed(() => rows.value.filter((row) => row.exchangeable))
 
-const selectedExchangeableGroups = computed(() => exchangeableRows.value.filter((row) => isAllSelected(row.id)).map((row) => row.group))
+const selectedExchangeableGroups = computed(() => {
+  return exchangeableRows.value
+    .map((row) => buildSelectedGroup(row))
+    .filter((group): group is DisplayMergeGroup => group !== null)
+})
 
 const allExchangeableGroupsSelected = computed(() => {
-  return exchangeableRows.value.length > 0 && selectedExchangeableGroups.value.length === exchangeableRows.value.length
+  return exchangeableRows.value.length > 0 && exchangeableRows.value.every((row) => isAllSelected(row.id))
+})
+
+const selectedOrderCount = computed(() => {
+  return selectedExchangeableGroups.value.reduce((sum, group) => sum + group.orders.length, 0)
+})
+
+const selectAllText = computed(() => {
+  return props.mode === 'smart' ? '全选可换开组合' : '全选可换开发票'
+})
+
+const selectedSummaryText = computed(() => {
+  if (props.mode === 'smart') {
+    return `已选 ${selectedExchangeableGroups.value.length} 组`
+  }
+
+  return `已选 ${selectedOrderCount.value} 张`
 })
 
 watch(selectedExchangeableGroups, (groups) => {
@@ -309,6 +328,24 @@ function handleGroupByChange(event: Event) {
 function resetGroupingState() {
   collapsedSections.value = new Set(groupedRows.value.map((section) => section.key))
   renderVersion.value += 1
+}
+
+function buildSelectedGroup(row: TableRow): DisplayMergeGroup | null {
+  const selectedIndexes = getSelectedIndexes(row.id)
+  if (props.mode === 'smart') {
+    return selectedIndexes.length === row.group.orders.length ? row.group : null
+  }
+
+  if (selectedIndexes.length === 0) {
+    return null
+  }
+
+  const orders = selectedIndexes.map((index) => row.group.orders[index])
+  return {
+    ...row.group,
+    orders,
+    total: orders.reduce((sum, order) => sum + getMergeOrderAmount(order), 0),
+  }
 }
 
 function buildRow(group: DisplayMergeGroup, index: number, exchangeable: boolean): TableRow {

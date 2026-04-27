@@ -3,20 +3,20 @@
     <div class="page-header">
       <div class="header-main">
         <h2>换开发票</h2>
-        <div class="mode-switch">
-          <button class="mode-btn" :class="{ active: mode === 'original' }" @click="mode = 'original'">
-            原始分组
-          </button>
-          <button class="mode-btn" :class="{ active: mode === 'smart' }" @click="mode = 'smart'">
-            智能凑单
-          </button>
-        </div>
       </div>
 
       <div class="actions">
         <button class="btn btn-primary" :disabled="store.loading || bulkSubmitting" @click="loadGroups">
           {{ fetchButtonText }}
         </button>
+        <div class="exchange-mode-switch" aria-label="换开方式">
+          <button class="mode-btn" :class="{ active: !useInvoiceCombos }" @click="useInvoiceCombos = false">
+            单开
+          </button>
+          <button class="mode-btn" :class="{ active: useInvoiceCombos }" @click="useInvoiceCombos = true">
+            合开
+          </button>
+        </div>
         <button class="btn btn-secondary" :disabled="store.loading || bulkSubmitting" @click="showFilters = !showFilters">
           {{ showFilters ? '收起筛选' : '筛选条件' }}
         </button>
@@ -26,22 +26,22 @@
     <div v-if="showFilters" class="filter-panel card">
       <div class="filter-grid">
         <label class="field">
-          <span class="field-label">订单金额下限</span>
+          <span class="field-label">单张发票金额下限（含）</span>
           <input v-model="filters.amountMin" type="number" min="0" step="0.01" class="input" placeholder="不限" />
         </label>
 
         <label class="field">
-          <span class="field-label">订单金额上限</span>
+          <span class="field-label">单张发票金额上限（含）</span>
           <input v-model="filters.amountMax" type="number" min="0" step="0.01" class="input" placeholder="不限" />
         </label>
 
         <label v-if="mode === 'smart'" class="field">
-          <span class="field-label">组合金额下限</span>
+          <span class="field-label">组合金额下限（含）</span>
           <input v-model="filters.comboAmountMin" type="number" min="0" step="0.01" class="input" placeholder="不限" />
         </label>
 
         <label v-if="mode === 'smart'" class="field">
-          <span class="field-label">组合金额上限</span>
+          <span class="field-label">组合金额上限（含）</span>
           <input v-model="filters.comboAmountMax" type="number" min="0" step="0.01" class="input" placeholder="不限" />
         </label>
 
@@ -66,12 +66,8 @@
       </div>
 
       <div class="filter-actions">
-        <span class="filter-tip">
-          原始分组按订单金额筛选；智能凑单模式会额外按组合金额筛选，默认只看组合金额大于等于 99.99。
-        </span>
         <div class="filter-buttons">
-          <button class="btn btn-secondary" @click="applyCommonFilters">常见筛选</button>
-          <button class="btn btn-secondary" @click="resetFilters">恢复默认筛选</button>
+          <button class="btn btn-secondary" @click="resetFilters">重置筛选</button>
         </div>
       </div>
     </div>
@@ -85,7 +81,7 @@
       `orderId`。
     </div>
 
-    <div v-if="mode === 'smart' && heldOrders.length > 0" class="hold-panel card">
+    <div v-if="useInvoiceCombos && heldOrders.length > 0" class="hold-panel card">
       <div class="hold-header">
         <div>
           <h3>已 Hold 发票</h3>
@@ -108,14 +104,14 @@
 
     <div v-if="!store.hasFetchedMergeGroups && !store.loading" class="empty">
       <p>点击按钮获取可换开的发票分组</p>
-      <button class="btn btn-primary" @click="loadGroups">加载缓存</button>
+      <button class="btn btn-primary" @click="loadGroups">重新获取</button>
     </div>
 
     <div v-else-if="displayGroups.length === 0 && store.hasFetchedMergeGroups && !store.loading" class="empty">
       <p>{{ emptyMessage }}</p>
       <div class="empty-actions">
         <button class="btn btn-primary" @click="loadGroups">重新获取</button>
-        <button v-if="store.mergeGroups.length > 0" class="btn btn-secondary" @click="resetFilters">恢复默认筛选</button>
+        <button v-if="store.mergeGroups.length > 0" class="btn btn-secondary" @click="resetFilters">重置筛选</button>
       </div>
     </div>
 
@@ -128,7 +124,7 @@
           :disabled="store.loading || submittingExchange || bulkSubmitting || selectedBulkGroups.length === 0"
           @click="handleBulkExchange"
         >
-          {{ bulkSubmitting ? `批量换开中 (${bulkProgressText})` : `一键换开选中分组 (${selectedBulkGroups.length})` }}
+          {{ bulkSubmitting ? `批量换开中 (${bulkProgressText})` : bulkButtonText }}
         </button>
       </div>
 
@@ -182,7 +178,8 @@ import {
 
 const store = useAppStore()
 
-const mode = ref<ExchangeMode>('original')
+const useInvoiceCombos = ref(false)
+const mode = computed<ExchangeMode>(() => (useInvoiceCombos.value ? 'smart' : 'original'))
 const showFilters = ref(false)
 const showConfirmDialog = ref(false)
 const submittingExchange = ref(false)
@@ -193,16 +190,23 @@ const confirmOrders = ref<MergeOrder[]>([])
 const selectedBulkGroups = ref<DisplayMergeGroup[]>([])
 const heldOrderIds = ref<Set<string>>(new Set())
 const filters = reactive<MergeFilters>({ ...DEFAULT_MERGE_FILTERS })
-const originalModeFilters = ref<MergeFilters>({ ...DEFAULT_MERGE_FILTERS })
+const originalModeFilters = ref<MergeFilters>({
+  ...DEFAULT_MERGE_FILTERS,
+  amountMin: '100.00',
+})
 const smartModeFilters = ref<MergeFilters>({
   ...DEFAULT_MERGE_FILTERS,
   amountMax: '99.99',
-  comboAmountMin: '99.99',
+  comboAmountMin: '100.00',
 })
+const originalFiltersInitialized = ref(false)
 const smartFiltersInitialized = ref(false)
 
 onMounted(() => {
   void store.loadTitles()
+  if (!store.hasFetchedMergeGroups) {
+    store.loadCachedMergeGroups()
+  }
 })
 
 const allOrders = computed(() => store.mergeGroups.flatMap((group) => group.orders))
@@ -228,7 +232,7 @@ const fetchButtonText = computed(() => {
   if (store.loading) {
     return '处理中...'
   }
-  return store.hasLoadedMergeGroupCache ? '重新获取' : '加载缓存'
+  return '重新获取'
 })
 
 const titleOptions = computed(() => {
@@ -274,7 +278,16 @@ function getSmartDefaultFilters(): MergeFilters {
   return {
     ...DEFAULT_MERGE_FILTERS,
     amountMax: '99.99',
-    comboAmountMin: '99.99',
+    comboAmountMin: '100.00',
+    ivcTitles: titleOptions.value.filter((title) => !title.includes('公司')),
+  }
+}
+
+function getSingleDefaultFilters(): MergeFilters {
+  return {
+    ...DEFAULT_MERGE_FILTERS,
+    amountMin: '100.00',
+    dateEnd: '2026-01-31',
     ivcTitles: titleOptions.value.filter((title) => !title.includes('公司')),
   }
 }
@@ -300,7 +313,19 @@ const secondaryDisplayGroups = computed(() => {
 const defaultTitle = computed(() => store.titles.find((item) => item.isDefault) ?? null)
 
 const showBulkExchangeButton = computed(() => {
-  return mode.value === 'smart' && smartDisplayGroups.value.length > 0
+  return displayGroups.value.length > 0
+})
+
+const selectedBulkOrderCount = computed(() => {
+  return selectedBulkGroups.value.reduce((sum, group) => sum + group.orders.length, 0)
+})
+
+const bulkButtonText = computed(() => {
+  if (useInvoiceCombos.value) {
+    return `一键按组合换开 (${selectedBulkGroups.value.length})`
+  }
+
+  return `一键单独换开 (${selectedBulkOrderCount.value})`
 })
 
 const totalAmount = computed(() => displayGroups.value.reduce((sum, group) => sum + group.total, 0).toFixed(2))
@@ -323,10 +348,20 @@ const emptyMessage = computed(() => {
 })
 
 watch(titleOptions, (nextTitles) => {
-  originalModeFilters.value = {
-    ...originalModeFilters.value,
-    ivcTitles: originalModeFilters.value.ivcTitles.filter((title) => nextTitles.includes(title)),
+  if (nextTitles.length === 0) {
+    filters.ivcTitles = filters.ivcTitles.filter((title) => nextTitles.includes(title))
+    return
   }
+
+  const shouldApplyOriginalDefaults = !originalFiltersInitialized.value && mode.value === 'original'
+  const shouldApplySmartDefaults = !smartFiltersInitialized.value && mode.value === 'smart'
+
+  originalModeFilters.value = originalFiltersInitialized.value
+    ? {
+        ...originalModeFilters.value,
+        ivcTitles: originalModeFilters.value.ivcTitles.filter((title) => nextTitles.includes(title)),
+      }
+    : getSingleDefaultFilters()
 
   smartModeFilters.value = smartFiltersInitialized.value
     ? {
@@ -335,7 +370,24 @@ watch(titleOptions, (nextTitles) => {
       }
     : getSmartDefaultFilters()
 
+  originalFiltersInitialized.value = true
   smartFiltersInitialized.value = true
+  if (shouldApplyOriginalDefaults) {
+    Object.assign(filters, {
+      ...originalModeFilters.value,
+      ivcTitles: [...originalModeFilters.value.ivcTitles],
+    })
+    return
+  }
+
+  if (shouldApplySmartDefaults) {
+    Object.assign(filters, {
+      ...smartModeFilters.value,
+      ivcTitles: [...smartModeFilters.value.ivcTitles],
+    })
+    return
+  }
+
   filters.ivcTitles = filters.ivcTitles.filter((title) => nextTitles.includes(title))
 }, { immediate: true })
 
@@ -378,30 +430,20 @@ watch(mode, (nextMode) => {
 }, { immediate: true })
 
 async function loadGroups() {
-  if (!store.hasLoadedMergeGroupCache) {
-    store.loadCachedMergeGroups()
-    return
-  }
-
   await store.loadMergeGroups()
 }
 
 function resetFilters() {
-  const nextFilters = mode.value === 'smart' ? getSmartDefaultFilters() : { ...DEFAULT_MERGE_FILTERS }
+  const nextFilters = mode.value === 'smart' ? getSmartDefaultFilters() : getSingleDefaultFilters()
   Object.assign(filters, nextFilters)
 }
 
-function applyCommonFilters() {
-  const currentYear = new Date().getFullYear()
-  Object.assign(filters, {
-    ...DEFAULT_MERGE_FILTERS,
-    amountMin: '100.01',
-    amountMax: mode.value === 'smart' ? '99.99' : '',
-    comboAmountMin: mode.value === 'smart' ? '99.99' : '',
-    comboAmountMax: '',
-    dateEnd: `${currentYear}-02-05`,
-    ivcTitles: titleOptions.value.filter((title) => !title.includes('公司')),
-  })
+function getRandomBulkDelayMs(): number {
+  return 10_000 + Math.floor(Math.random() * 10_001)
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
 function toggleHoldOrder(order: MergeOrder) {
@@ -495,14 +537,30 @@ async function handleBulkExchange() {
     return
   }
 
-  const smartGroups = selectedBulkGroups.value.filter((group) => group.kind === 'smart')
-  if (smartGroups.length === 0) {
-    alert('请先勾选要批量换开的推荐组合')
+  const selectedGroups = selectedBulkGroups.value
+  if (selectedGroups.length === 0) {
+    alert(useInvoiceCombos.value ? '请先勾选要批量换开的推荐组合' : '请先勾选要单独换开的发票')
+    return
+  }
+
+  const submitGroups = useInvoiceCombos.value
+    ? selectedGroups.filter((group) => group.kind === 'smart')
+    : selectedGroups.flatMap((group) => group.orders.map((order, index) => ({
+        ...group,
+        displayName: `${group.displayName || group.orgName} - 单开 ${index + 1}`,
+        orders: [order],
+        total: getMergeOrderAmount(order),
+      })))
+
+  if (submitGroups.length === 0) {
+    alert(useInvoiceCombos.value ? '请先勾选要批量换开的推荐组合' : '请先勾选要单独换开的发票')
     return
   }
 
   const confirmed = window.confirm(
-    `将使用默认抬头“${title.titleName}”批量换开选中的 ${smartGroups.length} 个推荐组合，是否继续？`,
+    useInvoiceCombos.value
+      ? `将使用默认抬头“${title.titleName}”按组合换开选中的 ${submitGroups.length} 个组合，是否继续？`
+      : `将使用默认抬头“${title.titleName}”单独换开选中的 ${submitGroups.length} 张发票，是否继续？`,
   )
   if (!confirmed) {
     return
@@ -512,9 +570,9 @@ async function handleBulkExchange() {
   const failures: string[] = []
 
   try {
-    for (let index = 0; index < smartGroups.length; index += 1) {
-      const group = smartGroups[index]
-      bulkProgressText.value = `${index + 1}/${smartGroups.length}`
+    for (let index = 0; index < submitGroups.length; index += 1) {
+      const group = submitGroups[index]
+      bulkProgressText.value = `${index + 1}/${submitGroups.length}`
 
       try {
         await submitOrders(group.orders, title.id, { silent: true })
@@ -522,15 +580,25 @@ async function handleBulkExchange() {
         const reason = error instanceof Error ? error.message : String(error)
         failures.push(`${group.displayName || group.orgName}: ${reason}`)
       }
+
+      if (index < submitGroups.length - 1) {
+        const delayMs = getRandomBulkDelayMs()
+        bulkProgressText.value = `${index + 1}/${submitGroups.length}，等待 ${Math.ceil(delayMs / 1000)} 秒`
+        await sleep(delayMs)
+      }
     }
 
-    const successCount = smartGroups.length - failures.length
+    const successCount = submitGroups.length - failures.length
     if (failures.length === 0) {
-      alert(`批量换开完成，共成功提交 ${successCount} 个推荐组合。`)
+      alert(useInvoiceCombos.value
+        ? `批量换开完成，共成功提交 ${successCount} 个组合。`
+        : `批量换开完成，共成功提交 ${successCount} 张发票。`)
       return
     }
 
-    alert(`批量换开已完成，成功 ${successCount} 个，失败 ${failures.length} 个。\n\n${failures.join('\n')}`)
+    alert(useInvoiceCombos.value
+      ? `批量换开已完成，成功 ${successCount} 个组合，失败 ${failures.length} 个。\n\n${failures.join('\n')}`
+      : `批量换开已完成，成功 ${successCount} 张发票，失败 ${failures.length} 张。\n\n${failures.join('\n')}`)
   } finally {
     bulkSubmitting.value = false
     bulkProgressText.value = ''
@@ -562,7 +630,7 @@ async function handleBulkExchange() {
   margin: 0;
 }
 
-.mode-switch {
+.exchange-mode-switch {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -590,6 +658,7 @@ async function handleBulkExchange() {
 
 .actions {
   display: flex;
+  align-items: center;
   gap: 10px;
 }
 
